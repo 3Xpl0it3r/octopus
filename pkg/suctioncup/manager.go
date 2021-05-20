@@ -18,7 +18,9 @@ import (
 var log = ctrl.Log.WithName("suctioncup").WithName("manager")
 
 func NewManager() (Manager, error) {
+	// adaptors adapter cache管理功能
 	var adaptors = adaptor.NewAdaptors()
+	// event queue
 	var queue = event.NewQueue()
 	return NewManagerWith(adaptors, queue)
 }

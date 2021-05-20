@@ -9,6 +9,7 @@ import (
 
 var log = ctrl.Log.WithName("suctioncup").WithName("connections")
 
+//  回话管理， 缓存管理
 type Connections struct {
 	index *sync.Map
 }

@@ -34,6 +34,7 @@ type Adaptor interface {
 }
 
 func NewAdaptor(dir, name, endpoint string, notifier event.ConnectionNotifier) (Adaptor, error) {
+	// 为每个model都创建一个本地soket， 用于链接执行的model，每个model都是socket，
 	var socketPath = filepath.Join(dir, endpoint)
 
 	var cliOptions = []grpc.DialOption{

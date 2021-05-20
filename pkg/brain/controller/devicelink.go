@@ -34,11 +34,13 @@ type DeviceLinkReconciler struct {
 // +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,verbs=get
 
 func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
+	// 主要就是确认node的状态和model 的状态是否存在
 	var ctx = r.Ctx
 	var log = r.Log.WithValues("deviceLink", req.NamespacedName)
 
 	// fetches link
 	var link edgev1alpha1.DeviceLink
+	//  j先检测link 资源存在不存在
 	if err := r.Get(ctx, req.NamespacedName, &link); err != nil {
 		if !apierrs.IsNotFound(err) {
 			log.Error(err, "Unable to fetch DeviceLink")
@@ -78,12 +80,14 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	// verifies Node
 	var node corev1.Node
 	if err := r.Get(ctx, types.NamespacedName{Name: link.Spec.Adaptor.Node}, &node); err != nil {
+		// 如果设备没有找到，重新requeue ，在进行reconcile
 		if !apierrs.IsNotFound(err) {
 			log.Error(err, "Unable to fetch the adaptor node of DeviceLink")
 			return ctrl.Result{Requeue: true}, nil
 		}
 	}
 	if !object.IsActivating(&node) {
+		// 检查node是否处于活动状态， 不在活动状态，link 资源重新requeue
 		link.FailOnNodeExisted("adaptor node isn't existed")
 		if err := r.Status().Update(ctx, &link); err != nil {
 			log.Error(err, "Unable to change the status of DeviceLink")
@@ -92,8 +96,9 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 		return ctrl.Result{}, nil
 	}
 	link.SucceedOnNodeExisted(&node)
+	//设置节点的状态为existed
 
-	// verifies CRD
+	// verifies CRD， 主要校验yaml文件是否合法
 	var model = apiextensionsv1.CustomResourceDefinition{}
 	if err := r.Get(ctx, types.NamespacedName{Name: modelutil.GetCRDNameOfGroupVersionKind(link.Spec.Model.GroupVersionKind())}, &model); err != nil {
 		if !apierrs.IsNotFound(err) {

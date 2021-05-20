@@ -64,6 +64,7 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 		return ctrl.Result{}, nil
 	}
 
+	// 如果对象不存在，则执行清理操作(清理操作就是执行disconnect的操作)
 	if object.IsDeleted(&link) {
 		if !collection.StringSliceContain(link.Finalizers, ReconcilingDeviceLink) {
 			return ctrl.Result{}, nil
@@ -83,6 +84,7 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	}
 
 	// adds finalizer if needed
+	// 添加finalizer字段
 	if !collection.StringSliceContain(link.Finalizers, ReconcilingDeviceLink) {
 		link.Finalizers = append(link.Finalizers, ReconcilingDeviceLink)
 		if err := r.Update(ctx, &link); err != nil {
@@ -95,6 +97,7 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	// NB(thxCode) we might see this as the `spec.adaptor.node` has been changed,
 	// so we need to disconnect the previous connection and
 	// wait for brain to confirm the next step.
+	// adaptor.node 是用来指定这个设备由那个节点来管理，一个节点可能， 管理多个， 如果不是当前的节点，那么则执行disconnect的操作
 	if link.Status.NodeName != link.Spec.Adaptor.Node {
 		r.SuctionCup.Disconnect(&link)
 		return ctrl.Result{}, nil
@@ -103,6 +106,7 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	// NB(thxCode) we might see this as the `spec.model` has been changed,
 	// so we need to disconnect the previous connection and
 	// wait for brain to confirm the next step.
+	// 如果link.status.model 是空指针，或者linkspec里面的model和status里面的model不匹配，则清理，执行disconnect的操作
 	if link.Status.Model == nil || *link.Status.Model != link.Spec.Model {
 		r.SuctionCup.Disconnect(&link)
 		return ctrl.Result{}, nil
@@ -110,23 +114,32 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 
 	// NB(thxCode) we might see this as the `spec.adaptor.name` has been changed,
 	// so we need to disconnect the previous connection.
+	//  如果status的适配器的名称和spec里面的适配的名称不一样，则执行disconnect的操作
 	if link.Status.AdaptorName != link.Spec.Adaptor.Name {
 		r.SuctionCup.Disconnect(&link)
 	}
 
-	// validates adaptor
+	// validates adaptor、
+	// 检查adapter是否存在
 	var isAdaptorExisted = r.SuctionCup.ExistAdaptor(link.Spec.Adaptor.Name)
+	// 如果spec里面执行的适配器不存在
+	// 如果适配器不存在，则不执行下面的操作，仅仅留一个空壳子对象
 	if !isAdaptorExisted {
 		link.FailOnAdaptorExisted("the adaptor isn't existed")
+		// 如果适配器不存在，则更新状态，重新进入reconcile
 		if err := r.Status().Update(ctx, &link); err != nil {
 			log.Error(err, "Unable to change the status of DeviceLink")
 			return ctrl.Result{Requeue: true}, nil
 		}
+		//如果状态更新成功，则推出
 		return ctrl.Result{}, nil
 	}
+
+	// 更新status状态为adaptor存在
 	link.SucceedOnAdaptorExisted()
 
 	// validates device
+	// 校验model，如果model不为空，则返回一个unstructed的resource
 	var device, deviceNewErr = modelutil.NewInstanceOfTypeMeta(*link.Status.Model)
 	if deviceNewErr != nil {
 		log.Error(deviceNewErr, "Unable to make device from model")
@@ -137,6 +150,8 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 		}
 		return ctrl.Result{}, nil
 	}
+	// 查看这个device是否存在（model是否存在，model也是一个资源对象），如果不存在，则重新加入队列里面
+	// model创建后，由model controller来控制，这里只复杂查看存不存在，具体的reconcile的逻辑由model controller来实现。
 	if err := r.Get(ctx, req.NamespacedName, &device); err != nil {
 		// requeues when occurring any errors except not-found one
 		if !apierrs.IsNotFound(err) {
@@ -144,6 +159,7 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 			return ctrl.Result{Requeue: true}, nil
 		}
 	}
+	// 检查device是否处于处于可用，如果device状态的delete或者是空，则创新一个新的
 	if !object.IsActivating(&device) {
 		// creates device
 		var deviceNew = constructDeviceFromTemplate(&link)
@@ -165,6 +181,7 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 
 		device = deviceNew
 	}
+	// 设备创建成功
 	link.SucceedOnDeviceCreated()
 
 	// fetches the references
@@ -181,6 +198,7 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	}
 
 	// updates device if need
+	// 检验device资源是否被修改过，修改郭泽执行update操作
 	var updateDevice = isDeviceSpecChanged(&link, &device)
 	if updateDevice {
 		if err := r.Update(ctx, &device); err != nil {
@@ -199,6 +217,7 @@ func (r *DeviceLinkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	}
 
 	// connects to device
+	// 链接设备操作
 	if err := r.SuctionCup.Connect(references, &device, &link); err != nil {
 		link.FailOnDeviceConnected("unable to connect to device")
 		if err := r.Status().Update(ctx, &link); err != nil {

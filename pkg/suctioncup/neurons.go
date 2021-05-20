@@ -19,10 +19,12 @@ func (m *manager) ExistAdaptor(name string) bool {
 }
 
 func (m *manager) Connect(referencesData map[string]map[string][]byte, device *unstructured.Unstructured, by *edgev1alpha1.DeviceLink) error {
+	// connection的逻辑就是在本地创建一个socket  用于和远端的grpc进行通信
 	var adaptorName = by.Status.AdaptorName
 	if adaptorName == "" {
 		return errors.New("adaptor name is empty")
 	}
+	// 根据adaptor的名称获取adaptor
 	var adaptor = m.adaptors.Get(adaptorName)
 	if adaptor == nil {
 		return errors.Errorf("cannot find adaptor %s", adaptorName)
@@ -40,7 +42,7 @@ func (m *manager) Connect(referencesData map[string]map[string][]byte, device *u
 			metrics.GetLimbMetricsRecorder().IncreaseConnections(adaptorName)
 		}
 	}()
-
+	// 获取device 名称（也就是model的名称）
 	var deviceName = object.GetNamespacedName(by)
 	var conn connection.Connection
 	overwritten, conn, connectedErr = adaptor.CreateConnection(deviceName)
